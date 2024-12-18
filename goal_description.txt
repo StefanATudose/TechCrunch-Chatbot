@@ -1,0 +1,5 @@
+Part 1: 
+I want a chatbot that answers only based on all techcrunch articles and nothing else and who's knowledge base increases with every new article. It has to provide a link to the source of its claims.
+
+Part 2:
+I want an app which summarizes techcrunch posts: Each post will have the original TechCrunch title, photo, but only a summary of its contents.
