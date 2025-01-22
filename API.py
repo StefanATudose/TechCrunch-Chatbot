@@ -24,12 +24,21 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from urllib.parse import unquote
 from langchain_core.documents import Document
+from fastapi.middleware.cors import CORSMiddleware
 
 
 #####Section 1: Global Framework Variables Definition
 
 load_dotenv()
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Adjust this to specify allowed origins, e.g., ["http://localhost:3000"]
+    allow_credentials=True,
+    allow_methods=["*"],  # You can specify methods like ["GET", "POST"]
+    allow_headers=["*"],  # You can specify allowed headers like ["Content-Type", "Authorization"]
+)
+
 
 llm = ChatOpenAI(temperature=0, model="gpt-4o-mini")
 embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
@@ -394,15 +403,15 @@ async def get_articles_by_query(query: str):
     urls = list(set([doc.metadata["url"] for doc in docs]))
     cursor.execute("SELECT * FROM article WHERE link = ANY(%s);", (urls,))
     tuples = cursor.fetchall()
-    result_dict = [dict(zip(['url', 'title', 'time', 'img', 'category', 'summary', 'questions', 'author'], tup)) for tup in tuples]
+    result_dict = [dict(zip(['url', 'title', 'img', 'category', 'summary', 'questions', 'author', 'time'], tup)) for tup in tuples]
     return result_dict 
 
 
-@app.get("/get_articles")
-async def get_articles():
-    cursor.execute("SELECT * FROM article;")
+@app.get("/get_articles/{pageNumber}")
+async def get_articles(pageNumber: int):
+    cursor.execute(f"SELECT * FROM article order by date desc limit 10 offset {10*pageNumber};") 
     tuples = cursor.fetchall()
-    result_dict = [dict(zip(['url', 'title', 'time', 'img', 'category', 'summary', 'questions', 'author'], tup)) for tup in tuples]
+    result_dict = [dict(zip(['url', 'title', 'img', 'category', 'summary', 'questions', 'author', 'time'], tup)) for tup in tuples]
     return result_dict 
 
 
@@ -413,5 +422,5 @@ async def get_article(url: str):
     tuples = cursor.fetchone()
     if tuples is None:
         return None
-    result_dict = dict(zip(['url', 'title', 'time', 'img', 'category', 'summary', 'questions', 'author'], tuples))
+    result_dict = dict(zip(['url', 'title', 'img', 'category', 'summary', 'questions', 'author', 'time'], tuples))
     return result_dict

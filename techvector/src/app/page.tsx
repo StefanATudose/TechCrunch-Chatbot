@@ -1,6 +1,9 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+
 
 interface Article{
   url: string;
@@ -15,18 +18,31 @@ interface Article{
 
 const url = "localhost:8000";
 
-async function fetchArticles(): Promise<Article[]> {
-  const response = await fetch(`{url}/get_articles`);
+async function fetchArticles(pageNumber: number): Promise<Article[]> {
+  const target: string = `http://${url}/get_articles/${pageNumber}`;
+  console.log(`target: ${target}`);
+  const response = await fetch(target);
   const data = await response.json();
   return data;
 }
 
 
-function ArticleList() {
+
+function ArticleList(props: {pageNumber: number}) {
   const [articles, setArticles] = useState<Article[]>([]);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    fetchArticles().then((data) => setArticles(data));
+    try{
+      fetchArticles(props.pageNumber).then((data) => setArticles(data));
+    }
+    catch (error){
+      setError((error as any).message);
+    } 
   }, []);
+  
+  if (error) {
+    return <div>{error}</div>;
+  }
 
   return (
     <div>
@@ -51,7 +67,7 @@ export default function Home() {
   return (
     <main>
       <header>
-        <Image src="/public/TV_logo.png" alt="TechVector" width={200} height={200} />
+        <Image src="/TV_logo.png" alt="TechVector" width={200} height={200} />
         <Link href = "">Conversation List</Link>
       </header>
       <div>
@@ -61,8 +77,10 @@ export default function Home() {
 
         <Link href = "">Seach Document</Link>
         <Link href="">Ask a General Question</Link>
-
       </div>
+
+      <ArticleList pageNumber={0}/>
+
     </main>
   );
 }
