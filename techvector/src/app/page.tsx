@@ -3,23 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import Article from "../lib/objects/article";
 
-
-interface Article{
-  url: string;
-  title: string;
-  time: string;
-  img: string;
-  category: string;
-  summary: string;
-  questions: string;
-  author: string;
-}
-
-const url = "localhost:8000";
+const host = "localhost:8000";
 
 async function fetchArticles(pageNumber: number): Promise<Article[]> {
-  const target: string = `http://${url}/get_articles/${pageNumber}`;
+  const target: string = `http://${host}/get_articles/${pageNumber}`;
   console.log(`target: ${target}`);
   const response = await fetch(target);
   const data = await response.json();
@@ -53,7 +42,7 @@ function ArticleList(props: {pageNumber: number}) {
           <Image src={article.img} alt={article.title} width={200} height={200} />
           <span>{article.time}, {article.author}, {article.category}</span>
           <Link href={article.url}>View on TechCrunch</Link>
-          <Link href="">Ask a question</Link>
+          <Link href={`/chat?articleUrl=${encodeURIComponent(article.url)}`}>Ask a question</Link>
         </div>
       ))}
     </div>
@@ -75,7 +64,7 @@ export default function Home() {
         <h2>An easier way of staying up-to-date with the tech world.</h2>
         <p>based on all TechCrunch article posted in 2025, powered by OpenAI's gpt-4o-mini, stored in PGVector</p>
 
-        <Link href = "">Seach Document</Link>
+        <Link href = "/search_articles">Seach Document</Link>
         <Link href="">Ask a General Question</Link>
       </div>
 

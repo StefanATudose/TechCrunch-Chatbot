@@ -375,9 +375,12 @@ class Url_chatbot_data(BaseModel):
     url: str
     thread_id: str = ""
 
+import logging
+LOG = logging.getLogger(__name__)
 
 @app.post("/url_chatbot")
 async def url_chatbot(url_chatbot_data: Url_chatbot_data):
+    LOG.info("API is starting up")
     query = url_chatbot_data.query
     url = url_chatbot_data.url
     thread_id = url_chatbot_data.thread_id
