@@ -8,6 +8,8 @@ import { useSearchParams } from "next/navigation";
 import { Cookies, useCookies } from "react-cookie";
 const host = "localhost:8000";
 var thread_id_given : string;
+var retrieved_articles_for_general : [[string]];
+
 
 async function fetchArticle(articleUrl: string): Promise<Article> {
     const url = encodeURI(articleUrl);
@@ -23,7 +25,7 @@ export default function Chat() {
     const [cookies, setCookie, removeCookie] = useCookies();
     const router = useSearchParams();
     const articleUrlParam = router.get("articleUrl");
-    const articleUrl = articleUrlParam ? encodeURI(articleUrlParam) : "";
+    const articleUrl = articleUrlParam ? encodeURI(articleUrlParam) : null;
     const [article, setArticle] = useState<Article>();
     const [error, setError] = useState<string | null>(null);
     
@@ -39,7 +41,9 @@ export default function Chat() {
       } 
     }, []);
 
-    const questions = article?.questions.split("&&&")
+    var questions;
+    if (article)
+      questions = article?.questions.split("&&&");
 
 
     async function handle_question(formData : any){
@@ -54,12 +58,20 @@ export default function Chat() {
       responseComponent.textContent = question;
       document.body.appendChild(responseComponent);
 
-      const request = new Request(`http://${host}/url_chatbot`, {
+      const request = articleUrl ? new Request(`http://${host}/url_chatbot`, {
           method: "POST",
           headers: {
         'Content-Type': 'application/json'
           },
           body: JSON.stringify({ query: question, url: articleUrl, thread_id: thread_id_given ? thread_id_given : "" }),
+        }) 
+        :
+        new Request(`http://${host}/general_chatbot`, {
+          method: "POST",
+          headers: {
+        'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ query: question, thread_id: thread_id_given ? thread_id_given : "" }),
         });
 
 
@@ -68,15 +80,23 @@ export default function Chat() {
         var response = await fetch(request)
         var data: any = await response.json()
         const text_response = data[0].content;
+
+        var retrieved_articles_for_general = data[1][0]
+
         if (!thread_id_given){
-          thread_id_given = data[1];
+          const retrieved_articles_dom = document.createElement("div");
+          for (let current_article of retrieved_articles_for_general){
+            const retrieved = document.createElement("a");
+            retrieved.textContent = current_article[0];
+            retrieved.href = current_article[1];
+            retrieved_articles_dom.appendChild(retrieved);
+          }
+          document.body.appendChild(retrieved_articles_dom); 
         }
       
-        
+      
         console.log(error)
-        const responseComponent = document.createElement("p");
-        responseComponent.textContent = text_response;
-        document.body.appendChild(responseComponent);
+        
         
         https://stackoverflow.com/questions/61862672/instance-variable-reset-everytime-component-re-render-in-reactjs
         console.log(thread_id_given)
@@ -88,8 +108,16 @@ export default function Chat() {
           console.log(thread_id_given)    
         }
         else
-          setCookie(thread_id_given, [question, text_response])
-        
+          setCookie(thread_id_given, [retrieved_articles_for_general, question, text_response])
+
+
+        const responseComponent = document.createElement("p");
+        responseComponent.textContent = text_response;
+        document.body.appendChild(responseComponent);
+
+        if (!thread_id_given){
+          thread_id_given = articleUrl ? data[1] : data[2];
+        }
 
       }
       catch (error){
@@ -121,19 +149,28 @@ export default function Chat() {
 
     return (
         <div>
-            <div key={article?.url}>
-                <h2>{article?.title}</h2>
-                <p>{article?.summary}</p>
-                <Image src={article?.img || "/placeholder_img.svg"} alt={article?.title || "[Article Title]"} width={200} height={200} />
-                <span>{article?.time}, {article?.author}, {article?.category}</span>
-                <Link href={article?.url || "https://techcrunch.com/"}>View on TechCrunch</Link>
-            </div>
+          {articleUrl ?
             <div>
-                <h3>{questions && questions.length > 0 ? questions[0] : "Question 1"}</h3>
-                <h3>{questions && questions.length > 0 ? questions[1] : "Question 2"}</h3>
-                <h3>{questions && questions.length > 0 ? questions[2] : "Question 3"}</h3>
+              <div key={article?.url}>
+                  <h2>{article?.title}</h2>
+                  <p>{article?.summary}</p>
+                  <Image src={article?.img || "/placeholder_img.svg"} alt={article?.title || "[Article Title]"} width={200} height={200} />
+                  <span>{article?.time}, {article?.author}, {article?.category}</span>
+                  <Link href={article?.url || "https://techcrunch.com/"}>View on TechCrunch</Link>
+              </div>
+              <div>
+                  {questions && questions.length > 0 && <h3>{questions[0]}</h3>}
+                  {questions && questions.length > 0 && <h3>{questions[1]}</h3>}
+                  {questions && questions.length > 0 && <h3>{questions[2]}</h3>}
+              </div>
             </div>
-
+            :
+            <div>
+              <h3>Is there something new about Elon Musk?</h3>
+              <h3>Tell me something interesting from CES 2025</h3>
+              <h3>Latest news about startups</h3>           
+            </div> 
+          }
             <form action={handle_question}>
                 <input name="question" type = 'text'/>
                 <button type="submit">Ask</button>

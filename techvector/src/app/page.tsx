@@ -30,7 +30,7 @@ export default async function Home(props: any) {
         <p>based on all TechCrunch article posted in 2025, powered by OpenAI's gpt-4o-mini, stored in PGVector</p>
 
         <Link href = "/search_articles">Seach Document</Link>
-        <Link href="">Ask a General Question</Link>
+        <Link href="/chat">Ask a General Question</Link>
       </div>
 
       <ArticleList pageNumber={currentPage}/>
