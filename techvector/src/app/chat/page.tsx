@@ -9,7 +9,7 @@ import { Cookies, useCookies } from "react-cookie";
 const host = "localhost:8000";
 var thread_id_given : string;
 var retrieved_articles_for_general : [[string]];
-
+const cookies_instance = new Cookies();
 
 async function fetchArticle(articleUrl: string): Promise<Article> {
     const url = encodeURI(articleUrl);
@@ -20,8 +20,15 @@ async function fetchArticle(articleUrl: string): Promise<Article> {
     return data;
   }
 
+function ChatHistory(){
+  const allCookies = cookies_instance.getAll();
+  for (let cookie in allCookies){
+    
+  }
+}
 
-export default function Chat() {
+
+export default function Chat(props : any) {
     const [cookies, setCookie, removeCookie] = useCookies();
     const router = useSearchParams();
     const articleUrlParam = router.get("articleUrl");
@@ -29,7 +36,6 @@ export default function Chat() {
     const [article, setArticle] = useState<Article>();
     const [error, setError] = useState<string | null>(null);
     
-    const cookies_instance = new Cookies();
 
     useEffect(() => {
       try{
@@ -47,6 +53,8 @@ export default function Chat() {
 
 
     async function handle_question(formData : any){
+      if (formData.thread_id)
+        thread_id_given = formData.thread_id
       console.log(thread_id_given)
       console.log(1);
       const question = formData.get("question");
@@ -97,27 +105,27 @@ export default function Chat() {
       
         console.log(error)
         
+        if (!thread_id_given){
+          thread_id_given = articleUrl ? data[1] : data[2];
+        }
         
-        https://stackoverflow.com/questions/61862672/instance-variable-reset-everytime-component-re-render-in-reactjs
         console.log(thread_id_given)
         const currentCookie = cookies_instance.get(thread_id_given);
-        if (currentCookie){
-          currentCookie.push(question);
-          currentCookie.push(text_response);
-          setCookie(thread_id_given, currentCookie);  
-          console.log(thread_id_given)    
+        if (!articleUrl){
+          if (!currentCookie){
+            setCookie(thread_id_given, ["general", retrieved_articles_for_general, question])    
+          }
         }
-        else
-          setCookie(thread_id_given, [retrieved_articles_for_general, question, text_response])
-
+        else{
+            setCookie(thread_id_given, ["url", article?.title, article?.img])    
+        }
+        
 
         const responseComponent = document.createElement("p");
         responseComponent.textContent = text_response;
         document.body.appendChild(responseComponent);
 
-        if (!thread_id_given){
-          thread_id_given = articleUrl ? data[1] : data[2];
-        }
+        
 
       }
       catch (error){
@@ -130,11 +138,6 @@ export default function Chat() {
     function getChatHistory(){
       const allCookies = cookies_instance.getAll()
       console.log(allCookies);
-      // return ({
-      //   allCookies.map((cookie: any)  => 
-      //     cookie.get
-      //   )
-      // })
     }
 
     function getThread(){
@@ -149,6 +152,8 @@ export default function Chat() {
 
     return (
         <div>
+          
+
           {articleUrl ?
             <div>
               <div key={article?.url}>

@@ -29,6 +29,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 #####Section 1: Global Framework Variables Definition
 
+
+
 load_dotenv()
 app = FastAPI()
 app.add_middleware(
@@ -39,21 +41,24 @@ app.add_middleware(
     allow_headers=["*"],  # You can specify allowed headers like ["Content-Type", "Authorization"]
 )
 
+@app.on_event('startup')
+def initialization():
+    llm = ChatOpenAI(temperature=0, model="gpt-4o-mini")
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+    vector_store = PGVector(
+        embeddings=embeddings,
+        collection_name="my_docs2",
+        connection="postgresql+psycopg://stefan:gigelfrone112@localhost:5432/techvector",
+    )
 
-llm = ChatOpenAI(temperature=0, model="gpt-4o-mini")
-embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-vector_store = PGVector(
-    embeddings=embeddings,
-    collection_name="my_docs2",
-    connection="postgresql+psycopg://stefan:gigelfrone112@localhost:5432/techvector",
-)
+    conn = psycopg2.connect("dbname=techvector user=stefan password=gigelfrone112 host=localhost port=5432")
+    cursor = conn.cursor()
 
-conn = psycopg2.connect("dbname=techvector user=stefan password=gigelfrone112 host=localhost port=5432")
-cursor = conn.cursor()
+    db_url = "postgresql://stefan:gigelfrone112@localhost:5432/techvector"
+    app.postgresCheckpointer = PostgresSaver(Connection.connect(db_url))
+    #postgresCheckpointer.setup()  #first time call only
 
-db_url = "postgresql://stefan:gigelfrone112@localhost:5432/techvector"
-postgresCheckpointer = PostgresSaver(Connection.connect(db_url))
-#postgresCheckpointer.setup()  #first time call only
+items_per_page = 10       # for main page pagination
 
 #####Section 2: Building the document retriever for get_articles_by_query_api
 
@@ -253,7 +258,7 @@ graph_builder.add_edge("generate", END)
 
 
 
-graph = graph_builder.compile(checkpointer=postgresCheckpointer)
+graph = graph_builder.compile(checkpointer=app.postgresCheckpointer)
 
 
 ##### Section 4: Building the url_chatbot
@@ -345,7 +350,7 @@ workflow.add_conditional_edges(
 workflow.add_edge("generate_custom", END)
 
 
-url_graph = workflow.compile(checkpointer=postgresCheckpointer)
+url_graph = workflow.compile(checkpointer=app.postgresCheckpointer)
 
 ##### Section 5: Defining the API endpoints
 
@@ -412,7 +417,7 @@ async def get_articles_by_query(query: str):
 
 @app.get("/get_articles/{pageNumber}")
 async def get_articles(pageNumber: int):
-    cursor.execute(f"SELECT * FROM article order by date desc limit 10 offset {10*pageNumber};") 
+    cursor.execute(f"SELECT * FROM article order by date desc limit {items_per_page} offset {10*(pageNumber-1)};") 
     tuples = cursor.fetchall()
     result_dict = [dict(zip(['url', 'title', 'img', 'category', 'summary', 'questions', 'author', 'time'], tup)) for tup in tuples]
     return result_dict 
@@ -427,3 +432,43 @@ async def get_article(url: str):
         return None
     result_dict = dict(zip(['url', 'title', 'img', 'category', 'summary', 'questions', 'author', 'time'], tuples))
     return result_dict
+
+
+@app.get("/get_article_pages")
+async def get_article_pages():
+    cursor.execute(f"SELECT * FROM article;")
+    total_pages = (cursor.rowcount + items_per_page - 1) // items_per_page
+    return total_pages
+
+
+@app.get("/conversation_history/{type}/{thread_id}")
+async def conversation_history(type : str, thread_id: str):
+    LOG.info(type, thread_id)
+    print(type, thread_id)
+    if type == "0":
+        snapshot = url_graph.get_state({"configurable": {"thread_id": thread_id}})
+    elif type == "1":
+        snapshot = graph.get_state({"configurable": {"thread_id": thread_id}})
+    else:
+        return
+
+    # result = []
+    # for item in dir(snapshot):
+    #     attr = getattr(snapshot, item)
+    #     if callable(attr):
+    #         result.append(f"{item}: Method")
+    #     else:
+    #         result.append(f"{item}: Attribute")
+
+    
+
+    messages = snapshot.values["messages"]
+    
+    conversation_messages = [
+        message.content
+        for message in messages
+        if message.type in ("human", "system")
+        or (message.type == "ai" and not message.tool_calls)
+    ]
+
+    return conversation_messages
