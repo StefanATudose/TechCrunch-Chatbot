@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Article from "../../lib/objects/article";
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { Cookies, useCookies } from "react-cookie";
+import FetchedArticles from "@/ui/fetchedArticles";
+import ChatList from "@/ui/chatList";
 const host = "localhost:8000";
 var thread_id_given : string;
 var retrieved_articles_for_general : [[string]];
@@ -18,13 +20,42 @@ async function fetchArticle(articleUrl: string): Promise<Article> {
     const response = await fetch(target);
     const data = await response.json();
     return data;
-  }
+}
+
+async function getPastChat(type: "0"|"1", thread_id: string){
+  const target: string = `http://${host}/conversation_history/${type}/${thread_id}`;
+  const response = await fetch(target);
+    const data = await response.json();
+    return data;
+}
 
 function ChatHistory(){
   const allCookies = cookies_instance.getAll();
+  const history_list = []
   for (let cookie in allCookies){
-    
+    if (/^[0-9A-F]{8}-[0-9A-F]{4}-[4][0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/i.test(cookie)){
+        history_list.push([allCookies[cookie], cookie]);
+    }
   }
+
+  const attachThread = (thread : string) => {
+    sessionStorage.setItem("thread_id", thread);
+  };
+
+  return(
+    history_list.map((cook : any, index) => 
+      cook[0] == "general" ?
+        <div key = {index}>
+          <Link href={`/chat`} shallow onClick={() => attachThread(cook[1])}>{cook[0][2]} </Link>
+        </div>       
+        :
+        <div key = {index}>
+          <Link href={`/chat?articleUrl=${encodeURIComponent(cook[0][3])}`} shallow onClick={() => attachThread(cook[1])}>{cook[0][1]} </Link>
+          <Image src={cook[0][2]} alt = "@/public/placeholder_img" width={50} height={50}/>
+        </div>        
+      
+    )
+  )
 }
 
 
@@ -35,26 +66,33 @@ export default function Chat(props : any) {
     const articleUrl = articleUrlParam ? encodeURI(articleUrlParam) : null;
     const [article, setArticle] = useState<Article>();
     const [error, setError] = useState<string | null>(null);
+    const [fetchedArticles, setFetchedArticles] = useState <{}> ()
+    const [chatMessages, setChatMessages] = useState<string[]>([])
     
 
     useEffect(() => {
       try{
         if (articleUrl != null && typeof articleUrl === 'string')
             fetchArticle(articleUrl).then((data) => setArticle(data));
+        thread_id_given = sessionStorage.getItem("thread_id") || "";
+        sessionStorage.removeItem("thread_id");
+        if (thread_id_given != ""){
+          getPastChat(articleUrl ? "0" : "1", thread_id_given).then((data :any) => setChatMessages(data))
+        }
+          
       }
       catch (error){
         setError((error as any).message);
       } 
-    }, []);
+    }, [router]);
 
     var questions;
     if (article)
       questions = article?.questions.split("&&&");
 
 
+
     async function handle_question(formData : any){
-      if (formData.thread_id)
-        thread_id_given = formData.thread_id
       console.log(thread_id_given)
       console.log(1);
       const question = formData.get("question");
@@ -62,9 +100,6 @@ export default function Chat(props : any) {
       if (!question) {
         return;
       }
-      const responseComponent = document.createElement("p");
-      responseComponent.textContent = question;
-      document.body.appendChild(responseComponent);
 
       const request = articleUrl ? new Request(`http://${host}/url_chatbot`, {
           method: "POST",
@@ -82,6 +117,7 @@ export default function Chat(props : any) {
           body: JSON.stringify({ query: question, thread_id: thread_id_given ? thread_id_given : "" }),
         });
 
+        
 
       try{
         //console.log(await request.json());
@@ -91,15 +127,8 @@ export default function Chat(props : any) {
 
         var retrieved_articles_for_general = data[1][0]
 
-        if (!thread_id_given){
-          const retrieved_articles_dom = document.createElement("div");
-          for (let current_article of retrieved_articles_for_general){
-            const retrieved = document.createElement("a");
-            retrieved.textContent = current_article[0];
-            retrieved.href = current_article[1];
-            retrieved_articles_dom.appendChild(retrieved);
-          }
-          document.body.appendChild(retrieved_articles_dom); 
+        if (!articleUrl && !thread_id_given){
+          setFetchedArticles(retrieved_articles_for_general);
         }
       
       
@@ -113,19 +142,18 @@ export default function Chat(props : any) {
         const currentCookie = cookies_instance.get(thread_id_given);
         if (!articleUrl){
           if (!currentCookie){
-            setCookie(thread_id_given, ["general", retrieved_articles_for_general, question])    
+            setCookie(thread_id_given, ["general", retrieved_articles_for_general, question, articleUrl])    
           }
         }
         else{
-            setCookie(thread_id_given, ["url", article?.title, article?.img])    
+          if (!currentCookie){
+            setCookie(thread_id_given, ["url", article?.title, article?.img, articleUrl])   
+          } 
         }
         
-
-        const responseComponent = document.createElement("p");
-        responseComponent.textContent = text_response;
-        document.body.appendChild(responseComponent);
-
+        setChatMessages([...chatMessages, question, text_response])
         
+        console.log(`chatMessages: ${chatMessages}`);
 
       }
       catch (error){
@@ -152,7 +180,7 @@ export default function Chat(props : any) {
 
     return (
         <div>
-          
+          <ChatHistory />
 
           {articleUrl ?
             <div>
@@ -182,6 +210,10 @@ export default function Chat(props : any) {
             </form>
             <button onClick={getChatHistory}>History</button>
             <button onClick={getThread}>Thread</button>
+
+          {articleUrl && <FetchedArticles articles = {fetchedArticles}/>}
+          <ChatList messages = {chatMessages} />
+          
         </div>
     );
 }
