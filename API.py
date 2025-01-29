@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 import psycopg2
 from langchain.chains.query_constructor.schema import AttributeInfo
@@ -25,6 +26,7 @@ from dotenv import load_dotenv
 from urllib.parse import unquote
 from langchain_core.documents import Document
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
 
 
 #####Section 1: Global Framework Variables Definition
@@ -32,17 +34,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 
 load_dotenv()
-app = FastAPI()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Adjust this to specify allowed origins, e.g., ["http://localhost:3000"]
-    allow_credentials=True,
-    allow_methods=["*"],  # You can specify methods like ["GET", "POST"]
-    allow_headers=["*"],  # You can specify allowed headers like ["Content-Type", "Authorization"]
-)
 
-@app.on_event('startup')
-def initialization():
+
+global_variables = {}
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     llm = ChatOpenAI(temperature=0, model="gpt-4o-mini")
     embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
     vector_store = PGVector(
@@ -53,304 +50,319 @@ def initialization():
 
     conn = psycopg2.connect("dbname=techvector user=stefan password=gigelfrone112 host=localhost port=5432")
     cursor = conn.cursor()
+    global_variables["cursor"] = cursor
 
     db_url = "postgresql://stefan:gigelfrone112@localhost:5432/techvector"
-    app.postgresCheckpointer = PostgresSaver(Connection.connect(db_url))
+    postgresCheckpointer = PostgresSaver(Connection.connect(db_url))
     #postgresCheckpointer.setup()  #first time call only
 
-items_per_page = 10       # for main page pagination
+    items_per_page = 10       # for main page pagination
+    global_variables["items_per_page"] = items_per_page
+    #####Section 2: Building the document retriever for get_articles_by_query_api
 
-#####Section 2: Building the document retriever for get_articles_by_query_api
+    def replace_date_objects(data):
+        """
+        Recursively traverses the JSON object and replaces every dictionary
+        containing 'date' and 'type' keys with the value of the 'date' key.
 
-def replace_date_objects(data):
-    """
-    Recursively traverses the JSON object and replaces every dictionary
-    containing 'date' and 'type' keys with the value of the 'date' key.
+        :param data: JSON object (dict, list, or other types)
+        :return: Updated JSON object
+        """
 
-    :param data: JSON object (dict, list, or other types)
-    :return: Updated JSON object
-    """
-
-    if isinstance(data, dict):
-        # Check if the current dictionary is the one to replace
-        if "date" in data and "type" in data:
-            return data["date"]
-        
-        # Otherwise, process each key-value pair
-        return {key: replace_date_objects(value) for key, value in data.items()}
-
-    elif isinstance(data, list):
-        # Process each element in the list
-        return [replace_date_objects(item) for item in data]
-
-    # Return the data as is for other types
-    return data
-
-
-class CustomTranslator(Visitor):
-    """Translate `PGVector` internal query language elements to valid filters."""
-
-    """Subset of allowed logical operators and comparators."""
-    allowed_operators = [Operator.AND, Operator.OR]
-    allowed_comparators = [
-        Comparator.EQ,
-        Comparator.NE,
-        Comparator.GT,
-        Comparator.LT,
-        Comparator.IN,
-        Comparator.NIN,
-        Comparator.CONTAIN,
-        Comparator.LIKE,
-    ]
-
-    #Unchanged from official PGTranslator implementation
-    def _format_func(self, func: Union[Operator, Comparator]) -> str:
-        self._validate_func(func)
-        return f"${func.value}"
-
-    #Unchanged from official PGTranslator implementation
-    def visit_operation(self, operation: Operation) -> Dict:
-        args = [arg.accept(self) for arg in operation.arguments]
-        return {self._format_func(operation.operator): args}
-
-
-    #Unchanged from official PGTranslator implementation
-    def visit_comparison(self, comparison: Comparison) -> Dict:
-        return {
-            comparison.attribute: {
-                self._format_func(comparison.comparator): comparison.value
-            }
-        }
-
-
-    def visit_structured_query(
-        self, structured_query: StructuredQuery
-    ) -> Tuple[str, dict]:
-        if structured_query.filter is None:
-            kwargs = {}
-        else:
-            kwargs = {"filter": structured_query.filter.accept(self)}
+        if isinstance(data, dict):
+            # Check if the current dictionary is the one to replace
+            if "date" in data and "type" in data:
+                return data["date"]
             
-            #Reformatted "data" fields to be compatible with the Documents' metadata
-            kwargs = replace_date_objects(kwargs)
-        return structured_query.query, kwargs
+            # Otherwise, process each key-value pair
+            return {key: replace_date_objects(value) for key, value in data.items()}
+
+        elif isinstance(data, list):
+            # Process each element in the list
+            return [replace_date_objects(item) for item in data]
+
+        # Return the data as is for other types
+        return data
 
 
-metadata_field_info = [
-    AttributeInfo(
-        name="title",
-        description="The title that the article was published under",
-        type="string",
-    ),
-    AttributeInfo(
-        name="author",
-        description="The name of the author of the article",
-        type="string",
-    ),
-    AttributeInfo(
-        name="date",
-        description="The date that the article was published on, in the format 'YYYY-MM-DD'. If the month is given by its name, it is converted to its number.",
-        type="string",
-    ),
-    AttributeInfo(
-        name="category",
-        description="The category that the article belongs to. One of ['AI', 'Apps', 'Biotech & Health', 'Climate', 'Commerce', 'Crypto', 'Enterprise', 'Fintech', 'Fundraising', 'Gadgets', 'Gaming', 'Government & Policy', 'Hardware', 'Media & Entertainment', 'Privacy', 'Robotics', 'Security', 'Social', 'Space', 'Startups', 'Transportation', 'Venture']",
-        type="string",
-    ),
-    AttributeInfo(
-        name="url",
-        description="The URL to the original TechCrunch article",
-        type="link",
-    )
-]
-document_content_description = "The article content"
+    class CustomTranslator(Visitor):
+        """Translate `PGVector` internal query language elements to valid filters."""
+
+        """Subset of allowed logical operators and comparators."""
+        allowed_operators = [Operator.AND, Operator.OR]
+        allowed_comparators = [
+            Comparator.EQ,
+            Comparator.NE,
+            Comparator.GT,
+            Comparator.LT,
+            Comparator.IN,
+            Comparator.NIN,
+            Comparator.CONTAIN,
+            Comparator.LIKE,
+        ]
+
+        #Unchanged from official PGTranslator implementation
+        def _format_func(self, func: Union[Operator, Comparator]) -> str:
+            self._validate_func(func)
+            return f"${func.value}"
+
+        #Unchanged from official PGTranslator implementation
+        def visit_operation(self, operation: Operation) -> Dict:
+            args = [arg.accept(self) for arg in operation.arguments]
+            return {self._format_func(operation.operator): args}
 
 
-retriever = SelfQueryRetriever.from_llm(
-    llm,
-    vector_store,
-    document_content_description,
-    metadata_field_info,
-    structured_query_translator=CustomTranslator(),
-)
-
-#####Section 3: Building the general_chatbot
+        #Unchanged from official PGTranslator implementation
+        def visit_comparison(self, comparison: Comparison) -> Dict:
+            return {
+                comparison.attribute: {
+                    self._format_func(comparison.comparator): comparison.value
+                }
+            }
 
 
-class StateWithArtifacts(MessagesState):
-    artifacts: List[Tuple[str, str]]
+        def visit_structured_query(
+            self, structured_query: StructuredQuery
+        ) -> Tuple[str, dict]:
+            if structured_query.filter is None:
+                kwargs = {}
+            else:
+                kwargs = {"filter": structured_query.filter.accept(self)}
+                
+                #Reformatted "data" fields to be compatible with the Documents' metadata
+                kwargs = replace_date_objects(kwargs)
+            return structured_query.query, kwargs
 
 
-@tool(response_format="content_and_artifact")
-def retrieve(query: str):
-    """Retrieve information related to a query."""
-    retrieved_docs = vector_store.similarity_search(query, k=3)
-    serialized = "\n\n".join(
-        (f"Source: {doc.metadata}\n" f"Content: {doc.page_content}")
-        for doc in retrieved_docs
-    )
-    retrieved_docs = [(doc.metadata['title'], doc.metadata['url']) for doc in retrieved_docs]
-    return serialized, retrieved_docs
-
-
-def query_or_respond(state: StateWithArtifacts):
-    """Generate tool call for retrieval or respond."""
-    llm_with_tools = llm.bind_tools([retrieve])
-    response = llm_with_tools.invoke(state["messages"])
-    # MessagesState appends messages to state instead of overwriting
-    return {"messages": [response]}
-
-
-tools = ToolNode([retrieve])
-
-
-def generate(state: StateWithArtifacts):
-    """Generate answer."""
-    # Get generated ToolMessages
-    recent_tool_messages = []
-    for message in reversed(state["messages"]):
-        if message.type == "tool":
-            recent_tool_messages.append(message)
-        else:
-            break
-    tool_messages = recent_tool_messages[::-1]
-
-    artifacts = [message.artifact for message in tool_messages if message.artifact]
-
-    # Format into prompt
-    docs_content = "\n\n".join(doc.content for doc in tool_messages)
-    system_message_content = (
-        "You are an assistant for question-answering tasks. "
-        "Use the following pieces of retrieved context to answer "
-        "the question. If you don't know the answer based on the retrieved context,"
-        "say that the context doesn't contain the answer, but nevertheless try to provide an"
-        "explanation based on your pre-trained knowledge. If you still don't know,"
-        "say that you don't know. Use three sentences maximum and keep the "
-        "answer concise.It is ABSOLUTELY NECESSARY to mention that the retrieved context does not contain the answer if it does not."
-        "\n\n"
-        f"{docs_content}"
-    )
-    conversation_messages = [
-        message
-        for message in state["messages"]
-        if message.type in ("human", "system")
-        or (message.type == "ai" and not message.tool_calls)
+    metadata_field_info = [
+        AttributeInfo(
+            name="title",
+            description="The title that the article was published under",
+            type="string",
+        ),
+        AttributeInfo(
+            name="author",
+            description="The name of the author of the article",
+            type="string",
+        ),
+        AttributeInfo(
+            name="date",
+            description="The date that the article was published on, in the format 'YYYY-MM-DD'. If the month is given by its name, it is converted to its number.",
+            type="string",
+        ),
+        AttributeInfo(
+            name="category",
+            description="The category that the article belongs to. One of ['AI', 'Apps', 'Biotech & Health', 'Climate', 'Commerce', 'Crypto', 'Enterprise', 'Fintech', 'Fundraising', 'Gadgets', 'Gaming', 'Government & Policy', 'Hardware', 'Media & Entertainment', 'Privacy', 'Robotics', 'Security', 'Social', 'Space', 'Startups', 'Transportation', 'Venture']",
+            type="string",
+        ),
+        AttributeInfo(
+            name="url",
+            description="The URL to the original TechCrunch article",
+            type="link",
+        )
     ]
-    prompt = [SystemMessage(system_message_content)] + conversation_messages
-
-    response = llm.invoke(prompt)
-    return {"messages": [response], "artifacts": artifacts}
+    document_content_description = "The article content"
 
 
-graph_builder = StateGraph(StateWithArtifacts)
-graph_builder.add_node(query_or_respond)
-graph_builder.add_node(tools)
-graph_builder.add_node(generate)
+    retriever = SelfQueryRetriever.from_llm(
+        llm,
+        vector_store,
+        document_content_description,
+        metadata_field_info,
+        structured_query_translator=CustomTranslator(),
+    )
+    global_variables["retriever"] = retriever
 
-graph_builder.set_entry_point("query_or_respond")
-graph_builder.add_conditional_edges(
-    "query_or_respond",
-    tools_condition,
-    {END: END, "tools": "tools"},
-)
-graph_builder.add_edge("tools", "generate")
-graph_builder.add_edge("generate", END)
+    #####Section 3: Building the general_chatbot
 
 
-
-graph = graph_builder.compile(checkpointer=app.postgresCheckpointer)
-
-
-##### Section 4: Building the url_chatbot
+    class StateWithArtifacts(MessagesState):
+        artifacts: List[Tuple[str, str]]
 
 
-class CustomState(MessagesState):
-    url: str
+    @tool(response_format="content_and_artifact")
+    def retrieve(query: str):
+        """Retrieve information related to a query."""
+        retrieved_docs = vector_store.similarity_search(query, k=3)
+        serialized = "\n\n".join(
+            (f"Source: {doc.metadata}\n" f"Content: {doc.page_content}")
+            for doc in retrieved_docs
+        )
+        retrieved_docs = [(doc.metadata['title'], doc.metadata['url']) for doc in retrieved_docs]
+        return serialized, retrieved_docs
 
 
-@tool
-def retrieve_by_url(query: str, url: Annotated[str, InjectedToolArg]) -> Tuple[str, list]:
-    """Retrieve information related to a query, only fetching documents with a specific URL."""
-    retrieved_docs = vector_store.similarity_search(query, k=2, filter={"url": {'$eq': url}})
-    serialized = "\n\n".join(
-        (f"Source: {doc.metadata}\n" f"Content: {doc.page_content}")
-        for doc in retrieved_docs
+    def query_or_respond(state: StateWithArtifacts):
+        """Generate tool call for retrieval or respond."""
+        llm_with_tools = llm.bind_tools([retrieve])
+        response = llm_with_tools.invoke(state["messages"])
+        # MessagesState appends messages to state instead of overwriting
+        return {"messages": [response]}
+
+
+    tools = ToolNode([retrieve])
+
+
+    def generate(state: StateWithArtifacts):
+        """Generate answer."""
+        # Get generated ToolMessages
+        recent_tool_messages = []
+        for message in reversed(state["messages"]):
+            if message.type == "tool":
+                recent_tool_messages.append(message)
+            else:
+                break
+        tool_messages = recent_tool_messages[::-1]
+
+        artifacts = [message.artifact for message in tool_messages if message.artifact]
+
+        # Format into prompt
+        docs_content = "\n\n".join(doc.content for doc in tool_messages)
+        system_message_content = (
+            "You are an assistant for question-answering tasks. "
+            "Use the following pieces of retrieved context to answer "
+            "the question. If you don't know the answer based on the retrieved context,"
+            "say that the context doesn't contain the answer, but nevertheless try to provide an"
+            "explanation based on your pre-trained knowledge. If you still don't know,"
+            "say that you don't know. Use three sentences maximum and keep the "
+            "answer concise.It is ABSOLUTELY NECESSARY to mention that the retrieved context does not contain the answer if it does not."
+            "\n\n"
+            f"{docs_content}"
+        )
+        conversation_messages = [
+            message
+            for message in state["messages"]
+            if message.type in ("human", "system")
+            or (message.type == "ai" and not message.tool_calls)
+        ]
+        prompt = [SystemMessage(system_message_content)] + conversation_messages
+
+        response = llm.invoke(prompt)
+        return {"messages": [response], "artifacts": artifacts}
+
+
+    graph_builder = StateGraph(StateWithArtifacts)
+    graph_builder.add_node(query_or_respond)
+    graph_builder.add_node(tools)
+    graph_builder.add_node(generate)
+
+    graph_builder.set_entry_point("query_or_respond")
+    graph_builder.add_conditional_edges(
+        "query_or_respond",
+        tools_condition,
+        {END: END, "tools": "tools"},
+    )
+    graph_builder.add_edge("tools", "generate")
+    graph_builder.add_edge("generate", END)
+
+
+
+    graph = graph_builder.compile(checkpointer=postgresCheckpointer)
+    global_variables["graph"] = graph
+
+    ##### Section 4: Building the url_chatbot
+
+
+    class CustomState(MessagesState):
+        url: str
+
+
+    @tool
+    def retrieve_by_url(query: str, url: Annotated[str, InjectedToolArg]) -> Tuple[str, list]:
+        """Retrieve information related to a query, only fetching documents with a specific URL."""
+        retrieved_docs = vector_store.similarity_search(query, k=2, filter={"url": {'$eq': url}})
+        serialized = "\n\n".join(
+            (f"Source: {doc.metadata}\n" f"Content: {doc.page_content}")
+            for doc in retrieved_docs
+        )
+
+        return serialized
+
+
+    def query_or_respond_custom(state: CustomState):
+        """Generate tool call for retrieval or respond."""
+        llm_with_tools = llm.bind_tools([retrieve_by_url])
+        response = llm_with_tools.invoke(state["messages"])
+
+        for call in response.tool_calls:
+            call["args"]["url"] = state['url']
+
+        return {"messages": [response]}
+
+
+    tools_by_url = ToolNode([retrieve_by_url])
+
+
+    def generate_custom(state: CustomState):
+        """Generate answer."""
+
+        # Get generated ToolMessages
+        recent_tool_messages = []
+        for message in reversed(state["messages"]):
+            if message.type == "tool":
+                recent_tool_messages.append(message)
+            else:
+                break
+        tool_messages = recent_tool_messages[::-1]
+
+        # Format into prompt
+        docs_content = "\n\n".join(doc.content for doc in tool_messages)
+        system_message_content = (
+            "You are an assistant for question-answering tasks. "
+            "Use the following pieces of retrieved context to answer "
+            "the question. If you don't know the answer based on the retrieved context,"
+            "PLEASE EXPLICITLY SAY that the context doesn't contain the answer, but nevertheless try to provide an"
+            "explanation based on your pre-trained knowledge. If you still don't know,"
+            "say that you don't know. Use three sentences maximum and keep the "
+            "answer concise. It is ABSOLUTELY NECESSARY to mention that the retrieved context does not contain the answer if it does not."
+            "\n\n"
+            f"{docs_content}"
+        )
+        conversation_messages = [
+            message
+            for message in state["messages"]
+            if message.type in ("human", "system")
+            or (message.type == "ai" and not message.tool_calls)
+        ]
+        prompt = [SystemMessage(system_message_content)] + conversation_messages
+
+        # Run
+        response = llm.invoke(prompt)
+        return {"messages": [response]}
+
+
+    workflow = StateGraph(CustomState)
+
+    workflow.add_node(tools_by_url)
+    workflow.add_node(query_or_respond_custom)
+    workflow.add_node(generate_custom)
+
+    workflow.set_entry_point("query_or_respond_custom")
+    workflow.add_edge("tools", "generate_custom")
+
+    workflow.add_conditional_edges(
+        "query_or_respond_custom",
+        tools_condition,
+        {END: END, "tools": "tools"},
     )
 
-    return serialized
+    workflow.add_edge("generate_custom", END)
 
 
-def query_or_respond_custom(state: CustomState):
-    """Generate tool call for retrieval or respond."""
-    llm_with_tools = llm.bind_tools([retrieve_by_url])
-    response = llm_with_tools.invoke(state["messages"])
-
-    for call in response.tool_calls:
-        call["args"]["url"] = state['url']
-
-    return {"messages": [response]}
+    url_graph = workflow.compile(checkpointer=postgresCheckpointer)
+    global_variables["url_graph"] = url_graph
+    yield
+    global_variables.clear()
 
 
-tools_by_url = ToolNode([retrieve_by_url])
-
-
-def generate_custom(state: CustomState):
-    """Generate answer."""
-
-    # Get generated ToolMessages
-    recent_tool_messages = []
-    for message in reversed(state["messages"]):
-        if message.type == "tool":
-            recent_tool_messages.append(message)
-        else:
-            break
-    tool_messages = recent_tool_messages[::-1]
-
-    # Format into prompt
-    docs_content = "\n\n".join(doc.content for doc in tool_messages)
-    system_message_content = (
-        "You are an assistant for question-answering tasks. "
-        "Use the following pieces of retrieved context to answer "
-        "the question. If you don't know the answer based on the retrieved context,"
-        "PLEASE EXPLICITLY SAY that the context doesn't contain the answer, but nevertheless try to provide an"
-        "explanation based on your pre-trained knowledge. If you still don't know,"
-        "say that you don't know. Use three sentences maximum and keep the "
-        "answer concise. It is ABSOLUTELY NECESSARY to mention that the retrieved context does not contain the answer if it does not."
-        "\n\n"
-        f"{docs_content}"
-    )
-    conversation_messages = [
-        message
-        for message in state["messages"]
-        if message.type in ("human", "system")
-        or (message.type == "ai" and not message.tool_calls)
-    ]
-    prompt = [SystemMessage(system_message_content)] + conversation_messages
-
-    # Run
-    response = llm.invoke(prompt)
-    return {"messages": [response]}
-
-
-workflow = StateGraph(CustomState)
-
-workflow.add_node(tools_by_url)
-workflow.add_node(query_or_respond_custom)
-workflow.add_node(generate_custom)
-
-workflow.set_entry_point("query_or_respond_custom")
-workflow.add_edge("tools", "generate_custom")
-
-workflow.add_conditional_edges(
-    "query_or_respond_custom",
-    tools_condition,
-    {END: END, "tools": "tools"},
+app = FastAPI(lifespan = lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Adjust this to specify allowed origins, e.g., ["http://localhost:3000"]
+    allow_credentials=True,
+    allow_methods=["*"],  # You can specify methods like ["GET", "POST"]
+    allow_headers=["*"],  # You can specify allowed headers like ["Content-Type", "Authorization"]
 )
-
-workflow.add_edge("generate_custom", END)
-
-
-url_graph = workflow.compile(checkpointer=app.postgresCheckpointer)
 
 ##### Section 5: Defining the API endpoints
 
@@ -370,7 +382,7 @@ async def general_chatbot(chatbot_data: chatbot_data):
     input_message = query
     config = {"configurable": {"thread_id": thread_id}}
 
-    ans = graph.invoke({"messages": [{"role": "user", "content": input_message}]} ,config=config,)
+    ans = global_variables["graph"].invoke({"messages": [{"role": "user", "content": input_message}]} ,config=config,)
 
     return ans["messages"][-1], ans["artifacts"], thread_id
 
@@ -396,7 +408,7 @@ async def url_chatbot(url_chatbot_data: Url_chatbot_data):
     input_message = query
     config = {"configurable": {"thread_id": thread_id}}
 
-    ans = graph.invoke({"messages": [{"role": "user", "content": input_message}], "url": url}, config=config)
+    ans = global_variables["url_graph"].invoke({"messages": [{"role": "user", "content": input_message}], "url": url}, config=config)
     
     return ans["messages"][-1], thread_id
 
@@ -407,18 +419,18 @@ async def get_articles_by_query(query: str):
     query = unquote(query)
     query = query.replace("'", "\'")
     query = query.replace("’", "\'")
-    docs = retriever.invoke(query)
+    docs = global_variables["retriever"].invoke(query)
     urls = list(set([doc.metadata["url"] for doc in docs]))
-    cursor.execute("SELECT * FROM article WHERE link = ANY(%s);", (urls,))
-    tuples = cursor.fetchall()
+    global_variables["cursor"].execute("SELECT * FROM article WHERE link = ANY(%s);", (urls,))
+    tuples = global_variables["cursor"].fetchall()
     result_dict = [dict(zip(['url', 'title', 'img', 'category', 'summary', 'questions', 'author', 'time'], tup)) for tup in tuples]
     return result_dict 
 
 
 @app.get("/get_articles/{pageNumber}")
 async def get_articles(pageNumber: int):
-    cursor.execute(f"SELECT * FROM article order by date desc limit {items_per_page} offset {10*(pageNumber-1)};") 
-    tuples = cursor.fetchall()
+    global_variables["cursor"].execute(f"SELECT * FROM article order by date desc limit {global_variables['items_per_page']} offset {10*(pageNumber-1)};") 
+    tuples = global_variables["cursor"].fetchall()
     result_dict = [dict(zip(['url', 'title', 'img', 'category', 'summary', 'questions', 'author', 'time'], tup)) for tup in tuples]
     return result_dict 
 
@@ -426,8 +438,8 @@ async def get_articles(pageNumber: int):
 @app.get("/get_article/{url:path}")
 async def get_article(url: str):
     url = unquote(url)
-    cursor.execute(f"SELECT * FROM article where link = '{url}';")
-    tuples = cursor.fetchone()
+    global_variables["cursor"].execute(f"SELECT * FROM article where link = '{url}';")
+    tuples = global_variables["cursor"].fetchone()
     if tuples is None:
         return None
     result_dict = dict(zip(['url', 'title', 'img', 'category', 'summary', 'questions', 'author', 'time'], tuples))
@@ -436,8 +448,8 @@ async def get_article(url: str):
 
 @app.get("/get_article_pages")
 async def get_article_pages():
-    cursor.execute(f"SELECT * FROM article;")
-    total_pages = (cursor.rowcount + items_per_page - 1) // items_per_page
+    global_variables["cursor"].execute(f"SELECT * FROM article;")
+    total_pages = (global_variables["cursor"].rowcount + global_variables["items_per_page"] - 1) // global_variables["items_per_page"]
     return total_pages
 
 
@@ -446,11 +458,13 @@ async def conversation_history(type : str, thread_id: str):
     LOG.info(type, thread_id)
     print(type, thread_id)
     if type == "0":
-        snapshot = url_graph.get_state({"configurable": {"thread_id": thread_id}})
+        snapshot = global_variables["url_graph"].get_state({"configurable": {"thread_id": thread_id}})
     elif type == "1":
-        snapshot = graph.get_state({"configurable": {"thread_id": thread_id}})
+        snapshot = global_variables["graph"].get_state({"configurable": {"thread_id": thread_id}})
     else:
         return
+    snapshot_json = jsonable_encoder(snapshot)
+    message_structure = [snapshot_json[0]['messages']]
 
     # result = []
     # for item in dir(snapshot):
@@ -462,13 +476,13 @@ async def conversation_history(type : str, thread_id: str):
 
     
 
-    messages = snapshot.values["messages"]
+    #messages = snapshot.values["messages"]
     
     conversation_messages = [
-        message.content
+        message["content"] for messages in message_structure
         for message in messages
-        if message.type in ("human", "system")
-        or (message.type == "ai" and not message.tool_calls)
+        if message["type"] in ("human", "system")
+        or (message["type"] == "ai" and not message["tool_calls"])
     ]
 
     return conversation_messages
