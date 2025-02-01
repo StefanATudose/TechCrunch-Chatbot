@@ -10,13 +10,12 @@ import FetchedArticles from "@/ui/fetchedArticles";
 import ChatList from "@/ui/chatList";
 const host = "localhost:8000";
 var thread_id_given : string;
-var retrieved_articles_for_general : [[string]];
+var retrieved_articles_for_general : string[][];
 const cookies_instance = new Cookies();
 
 async function fetchArticle(articleUrl: string): Promise<Article> {
     const url = encodeURI(articleUrl);
     const target: string = `http://${host}/get_article/${url}`;
-    console.log(`target: ${target}`);
     const response = await fetch(target);
     const data = await response.json();
     return data;
@@ -42,9 +41,10 @@ function ChatHistory(){
     sessionStorage.setItem("thread_id", thread);
   };
 
+
   return(
     history_list.map((cook : any, index) => 
-      cook[0] == "general" ?
+      cook[0][0] == "general" ?
         <div key = {index}>
           <Link href={`/chat`} shallow onClick={() => attachThread(cook[1])}>{cook[0][2]} </Link>
         </div>       
@@ -78,6 +78,9 @@ export default function Chat(props : any) {
         sessionStorage.removeItem("thread_id");
         if (thread_id_given != ""){
           getPastChat(articleUrl ? "0" : "1", thread_id_given).then((data :any) => setChatMessages(data))
+          if (!articleUrl)
+            console.log(`setting fetched articles state with the value of ${cookies_instance.get(thread_id_given)[1]}`);
+            setFetchedArticles(cookies_instance.get(thread_id_given)[1]);
         }
           
       }
@@ -93,8 +96,6 @@ export default function Chat(props : any) {
 
 
     async function handle_question(formData : any){
-      console.log(thread_id_given)
-      console.log(1);
       const question = formData.get("question");
 
       if (!question) {
@@ -120,29 +121,31 @@ export default function Chat(props : any) {
         
 
       try{
-        //console.log(await request.json());
         var response = await fetch(request)
         var data: any = await response.json()
         const text_response = data[0].content;
 
-        var retrieved_articles_for_general = data[1][0]
-
         if (!articleUrl && !thread_id_given){
+          retrieved_articles_for_general = data[1][0];
+          const seen = new Set();
+          retrieved_articles_for_general = retrieved_articles_for_general.filter(([title, url]) => {
+            const key = `${title}-${url}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true; 
+          });
           setFetchedArticles(retrieved_articles_for_general);
         }
-      
-      
-        console.log(error)
+
         
         if (!thread_id_given){
           thread_id_given = articleUrl ? data[1] : data[2];
         }
-        
-        console.log(thread_id_given)
+
         const currentCookie = cookies_instance.get(thread_id_given);
         if (!articleUrl){
           if (!currentCookie){
-            setCookie(thread_id_given, ["general", retrieved_articles_for_general, question, articleUrl])    
+            setCookie(thread_id_given, ["general", retrieved_articles_for_general, question])    
           }
         }
         else{
@@ -152,8 +155,6 @@ export default function Chat(props : any) {
         }
         
         setChatMessages([...chatMessages, question, text_response])
-        
-        console.log(`chatMessages: ${chatMessages}`);
 
       }
       catch (error){
@@ -211,7 +212,7 @@ export default function Chat(props : any) {
             <button onClick={getChatHistory}>History</button>
             <button onClick={getThread}>Thread</button>
 
-          {articleUrl && <FetchedArticles articles = {fetchedArticles}/>}
+          {!articleUrl && <FetchedArticles articles = {fetchedArticles}/>}
           <ChatList messages = {chatMessages} />
           
         </div>

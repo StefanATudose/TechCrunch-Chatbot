@@ -1,8 +1,9 @@
 import Link from "next/link";
 
 function FetchedArticles(props : any){
-
-    console.log(props.articles)
+    
+    console.log("rendered fetched articles");
+    console.log(props.articles);
 
     return(
         <div> 
