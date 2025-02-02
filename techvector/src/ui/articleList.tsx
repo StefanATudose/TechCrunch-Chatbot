@@ -2,8 +2,7 @@
 
 import Article from "@/lib/objects/article";
 import { useState, useEffect } from "react";
-import Link from "next/link";
-import Image from "next/image";
+import ArticleComponent from "./articleComponent";
 
 const host = "localhost:8000";
 
@@ -35,14 +34,7 @@ function ArticleList(props: any) {
     return (
       <div>
         {articles.map((article) => (
-          <div key={article.url}>
-            <h2>{article.title}</h2>
-            <p>{article.summary}</p>
-            <Image src={article.img} alt={article.title} width={200} height={200} />
-            <span>{article.time}, {article.author}, {article.category}</span>
-            <Link href={article.url}>View on TechCrunch</Link>
-            <Link href={`/chat?articleUrl=${encodeURIComponent(article.url)}`}>Ask a question</Link>
-          </div>
+          <ArticleComponent key={article.url} article={article}/>
         ))}
       </div>
     );

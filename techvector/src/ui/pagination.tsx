@@ -52,7 +52,7 @@ export default function Pagination({ totalPages }: { totalPages: number }) {
   };
 
   return (
-    <>
+    <div className='text-center'>
 
       <div className="inline-flex">
         <PaginationArrow
@@ -88,7 +88,7 @@ export default function Pagination({ totalPages }: { totalPages: number }) {
           isDisabled={currentPage >= totalPages}
         />
       </div>
-    </>
+    </div>
   );
 }
 
