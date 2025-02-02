@@ -48,11 +48,11 @@ export default function Pagination({ totalPages }: { totalPages: number }) {
   const createPageURL = (pageNumber: number | string) => {
     const params = new URLSearchParams(searchParams);
     params.set('page', pageNumber.toString());
-    return `${pathname}?${params.toString()}`;
+    return `${pathname}?${params.toString()}#articleList`;
   };
 
   return (
-    <div className='text-center'>
+    <div className='text-center p-10 bg-gray-900'>
 
       <div className="inline-flex">
         <PaginationArrow

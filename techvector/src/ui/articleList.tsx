@@ -32,7 +32,7 @@ function ArticleList(props: any) {
     }
   
     return (
-      <div>
+      <div id = "articleList">
         {articles.map((article) => (
           <ArticleComponent key={article.url} article={article}/>
         ))}

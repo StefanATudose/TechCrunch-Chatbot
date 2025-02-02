@@ -6,7 +6,9 @@ import Image from "next/image";
 
 function ArticleComponent(props: any) {
     const article = props.article;
-    
+    if (!article)
+      return;
+    article.time = article.time.split("T").join(", ");
 
     return (
       <div key={article.url} className="bg-gray-900 text-white p-12 rounded-2xl shadow-lg hover:shadow-xl transition-shadow duration-300 lg:flex items-center space-x-6">
@@ -17,7 +19,7 @@ function ArticleComponent(props: any) {
           <span>{article.time} | {article.author} | {article.category}</span>
         </div>
         <div className="flex space-x-4">
-          <Link href={article.url} className="bg-cyan-500 text-black px-4 py-2 rounded-lg font-medium hover:bg-cyan-600 transition">
+          <Link href={article.url} target="_blank" className="bg-cyan-500 text-black px-4 py-2 rounded-lg font-medium hover:bg-cyan-600 transition">
             View on TechCrunch
           </Link>
           <Link href={`/chat?articleUrl=${encodeURIComponent(article.url)}`} className="bg-gray-700 text-white px-4 py-2 rounded-lg font-medium hover:bg-gray-600 transition">
@@ -25,7 +27,7 @@ function ArticleComponent(props: any) {
           </Link>
         </div>
       </div>
-      <div className="w-5/6 lg:w-1/4 flex-shrink-0">
+      <div className="flex-shrink-0">
         <Image
           src={article.img}
           alt={article.title}

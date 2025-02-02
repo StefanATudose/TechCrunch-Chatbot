@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef} from "react";
 import Article from "../../lib/objects/article";
 import Link from "next/link";
 import Image from "next/image";
@@ -8,6 +8,7 @@ import { useSearchParams } from "next/navigation";
 import { Cookies, useCookies } from "react-cookie";
 import FetchedArticles from "@/ui/fetchedArticles";
 import ChatList from "@/ui/chatList";
+import ArticleComponentChat from "@/ui/articleComponentChat";
 const host = "localhost:8000";
 var thread_id_given : string;
 var retrieved_articles_for_general : string[][];
@@ -43,18 +44,20 @@ function ChatHistory(){
 
 
   return(
-    history_list.map((cook : any, index) => 
-      cook[0][0] == "general" ?
-        <div key = {index}>
-          <Link href={`/chat`} shallow onClick={() => attachThread(cook[1])}>{cook[0][2]} </Link>
-        </div>       
-        :
-        <div key = {index}>
-          <Link href={`/chat?articleUrl=${encodeURIComponent(cook[0][3])}`} shallow onClick={() => attachThread(cook[1])}>{cook[0][1]} </Link>
-          <Image src={cook[0][2]} alt = "@/public/placeholder_img" width={50} height={50}/>
-        </div>        
-      
-    )
+    <div className = "basis-1/5">
+      {history_list.map((cook : any, index) => 
+        cook[0][0] == "general" ?
+          <div key = {index}>
+            <Link href={`/chat`} shallow onClick={() => attachThread(cook[1])}>{cook[0][2]} </Link>
+          </div>       
+          :
+          <div key = {index}>
+            <Link href={`/chat?articleUrl=${encodeURIComponent(cook[0][3])}`} shallow onClick={() => attachThread(cook[1])}>{cook[0][1]} </Link>
+            <Image src={cook[0][2]} alt = "@/public/placeholder_img" width={50} height={50}/>
+          </div>        
+        
+      )}
+    </div>
   )
 }
 
@@ -68,7 +71,9 @@ export default function Chat(props : any) {
     const [error, setError] = useState<string | null>(null);
     const [fetchedArticles, setFetchedArticles] = useState <{}> ()
     const [chatMessages, setChatMessages] = useState<string[]>([])
-    
+    const [question, setQuestion] = useState<string>();
+    const formRef = useRef<HTMLFormElement>(null);
+    const [shouldSubmit, setShouldSubmit] = useState<Boolean>(false);
 
     useEffect(() => {
       try{
@@ -89,15 +94,39 @@ export default function Chat(props : any) {
       } 
     }, [router]);
 
+    useEffect(()=>{
+      if (formRef.current && shouldSubmit){
+        setShouldSubmit(false);
+        formRef.current.requestSubmit();
+        setQuestion("");
+      }
+    }, [question]);
+
     var questions;
     if (article)
       questions = article?.questions.split("&&&");
 
+    function QuestionSuggestion(props : any){
+      return (
+        <button onClick = {() => {
+          if (formRef.current){
+            setQuestion(props.question);
+            setShouldSubmit(true);
+          }
+          
+        }} className = {`${props.gridPosition} bg-gray-700 text-white hover:bg-gray-600 p-5 rounded-lg font-medium transition-shadow shadow-md hover:shadow-lg`}>{props.question}</button>
+      )
+    }
 
+    async function handle_question1(){
+      if (!question) {
+        return;
+      }
+      setChatMessages((prevState) => [...prevState, question]);
+      handle_question2();
+    }
 
-    async function handle_question(formData : any){
-      const question = formData.get("question");
-
+    async function handle_question2(){
       if (!question) {
         return;
       }
@@ -117,8 +146,9 @@ export default function Chat(props : any) {
           },
           body: JSON.stringify({ query: question, thread_id: thread_id_given ? thread_id_given : "" }),
         });
-
+        console.log(`value of question before state: ${question}`);
         
+        console.log(`value of chatmessages state: ${chatMessages}`);
 
       try{
         var response = await fetch(request)
@@ -153,9 +183,9 @@ export default function Chat(props : any) {
             setCookie(thread_id_given, ["url", article?.title, article?.img, articleUrl])   
           } 
         }
-        
-        setChatMessages([...chatMessages, question, text_response])
-
+        //setChatMessages([...chatMessages, question]);
+        setChatMessages((prevState) => [...prevState, text_response]);
+        setQuestion("");
       }
       catch (error){
         setError((error as any).message);
@@ -164,15 +194,6 @@ export default function Chat(props : any) {
     }
 
 
-    function getChatHistory(){
-      const allCookies = cookies_instance.getAll()
-      console.log(allCookies);
-    }
-
-    function getThread(){
-      console.log(thread_id_given);
-    }
-
 
     if (error)
       return (
@@ -180,41 +201,48 @@ export default function Chat(props : any) {
       )
 
     return (
-        <div>
+        <div className="flex h-[88vh]">
           <ChatHistory />
+          <div className="basis-4/5 flex relative flex-col">
+            <div className = "overflow-y-scroll">
+              {articleUrl ?
+                <div>
+                  <ArticleComponentChat article = {article} />
+                  {!question && chatMessages.length == 0 &&
+                  <div className = "grid grid-cols-4 mx-50 my-20 gap-10">
+                      {questions && <QuestionSuggestion question = {questions[0]} gridPosition = "col-span-2"/>}
+                      {questions && <QuestionSuggestion question = {questions[1]} gridPosition = "col-span-2"/>}
+                      {questions && <QuestionSuggestion question = {questions[2]} gridPosition = "col-span-2 col-start-2"/>}
+                  </div>}
+                </div>
+                :
+                <div>
+                  <h3>Is there something new about Elon Musk?</h3>
+                  <h3>Tell me something interesting from CES 2025</h3>
+                  <h3>Latest news about startups</h3>           
+                </div> 
+              }
 
-          {articleUrl ?
-            <div>
-              <div key={article?.url}>
-                  <h2>{article?.title}</h2>
-                  <p>{article?.summary}</p>
-                  <Image src={article?.img || "/placeholder_img.svg"} alt={article?.title || "[Article Title]"} width={200} height={200} />
-                  <span>{article?.time}, {article?.author}, {article?.category}</span>
-                  <Link href={article?.url || "https://techcrunch.com/"}>View on TechCrunch</Link>
-              </div>
-              <div>
-                  {questions && questions.length > 0 && <h3>{questions[0]}</h3>}
-                  {questions && questions.length > 0 && <h3>{questions[1]}</h3>}
-                  {questions && questions.length > 0 && <h3>{questions[2]}</h3>}
-              </div>
+              {!articleUrl && <FetchedArticles articles = {fetchedArticles}/>}
+              <ChatList messages = {chatMessages} />
+              <form ref = {formRef} action={handle_question1} className="bg-gray-900 p-4 rounded-2xl shadow-lg flex items-center space-x-4 absolute bottom-0 left-50 right-50">
+                <input
+                  type="text"
+                  placeholder="Ask something..."
+                  className="flex-1 bg-gray-800 text-white p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  value={question}
+                  onChange={(event)=>{setQuestion(event.target.value);}}
+                  required
+                />
+                <button
+                  className="bg-cyan-500 text-black px-4 py-2 rounded-lg font-medium hover:bg-cyan-600 disabled:bg-cyan-600 transition-shadow shadow-md hover:shadow-lg"
+                  disabled = {chatMessages.length % 2 == 1}>
+                  Ask
+                </button>
+              </form>
+              
             </div>
-            :
-            <div>
-              <h3>Is there something new about Elon Musk?</h3>
-              <h3>Tell me something interesting from CES 2025</h3>
-              <h3>Latest news about startups</h3>           
-            </div> 
-          }
-            <form action={handle_question}>
-                <input name="question" type = 'text'/>
-                <button type="submit">Ask</button>
-            </form>
-            <button onClick={getChatHistory}>History</button>
-            <button onClick={getThread}>Thread</button>
-
-          {!articleUrl && <FetchedArticles articles = {fetchedArticles}/>}
-          <ChatList messages = {chatMessages} />
-          
+          </div>
         </div>
     );
 }

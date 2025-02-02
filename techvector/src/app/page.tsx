@@ -3,7 +3,7 @@ import Link from "next/link";
 import ArticleList from "@/ui/articleList";
 import Pagination from "@/ui/pagination";
 import { Geostar } from "next/font/google";
-import { FaArrowCircleDown } from "react-icons/fa";
+import ScrollButton from "@/ui/scrollToArticleList";
 
 const host = "localhost:8000"
 
@@ -42,7 +42,7 @@ export default async function Home(props: any) {
           <Link className="px-4 py-2 bg-teal-800 text-white rounded-lg" href = "/search_articles">Seach Document</Link>
           <Link className="px-4 py-2 bg-teal-800 text-white rounded-lg" href="/chat">Ask a General Question</Link>
         </div>
-        
+        <ScrollButton />
       </div>
 
       <ArticleList pageNumber={currentPage}/>
@@ -51,4 +51,4 @@ export default async function Home(props: any) {
 
     </main>
   );
-}//<FaArrowCircleDown className="absolute bottom-30 size-15" href={scrollToList}/>
+}
