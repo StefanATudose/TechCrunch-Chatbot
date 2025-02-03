@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from 'react';
+import Image from 'next/image';
 
 export default function Chat( props :any ) {
   const chatRef = useRef<HTMLDivElement>(null);
@@ -18,7 +19,7 @@ export default function Chat( props :any ) {
 
   return (
     <div>
-      <div className="flex flex-col p-4 space-y-4 mb-20">
+      <div className="flex flex-col p-4 space-y-4 mb-30">
         {messages.map((msg:any, index:any) => (
           <div
             key={index}
@@ -26,7 +27,8 @@ export default function Chat( props :any ) {
           >
             {msg}
           </div>
-        ))}
+          ))}
+        {messages.length % 2 == 1 && <Image src="/typing.gif" alt="Typing..." width={50} height={50} />}
       </div>
       <div ref={chatRef}/>
     </div>

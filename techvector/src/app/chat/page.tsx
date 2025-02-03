@@ -44,7 +44,7 @@ function ChatHistory(){
 
 
   return(
-    <div className = "basis-1/5">
+    <div className = "basis-1/5 overflow-y-auto">
       {history_list.map((cook : any, index) => 
         cook[0][0] == "general" ?
           <div key = {index}>
@@ -209,7 +209,7 @@ export default function Chat(props : any) {
                 <div>
                   <ArticleComponentChat article = {article} />
                   {!question && chatMessages.length == 0 &&
-                  <div className = "grid grid-cols-4 mx-50 my-20 gap-10">
+                  <div className = "grid grid-cols-4 mx-50 my-5 gap-6">
                       {questions && <QuestionSuggestion question = {questions[0]} gridPosition = "col-span-2"/>}
                       {questions && <QuestionSuggestion question = {questions[1]} gridPosition = "col-span-2"/>}
                       {questions && <QuestionSuggestion question = {questions[2]} gridPosition = "col-span-2 col-start-2"/>}
@@ -226,10 +226,9 @@ export default function Chat(props : any) {
               {!articleUrl && <FetchedArticles articles = {fetchedArticles}/>}
               <ChatList messages = {chatMessages} />
               <form ref = {formRef} action={handle_question1} className="bg-gray-900 p-4 rounded-2xl shadow-lg flex items-center space-x-4 absolute bottom-0 left-50 right-50">
-                <input
-                  type="text"
+                <textarea
                   placeholder="Ask something..."
-                  className="flex-1 bg-gray-800 text-white p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-800 text-white p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   value={question}
                   onChange={(event)=>{setQuestion(event.target.value);}}
                   required
