@@ -6,7 +6,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { Cookies, useCookies } from "react-cookie";
-import FetchedArticles from "@/ui/fetchedArticles";
 import ChatList from "@/ui/chatList";
 import ArticleComponentChat from "@/ui/articleComponentChat";
 const host = "localhost:8000";
@@ -25,8 +24,12 @@ async function fetchArticle(articleUrl: string): Promise<Article> {
 async function getPastChat(type: "0"|"1", thread_id: string){
   const target: string = `http://${host}/conversation_history/${type}/${thread_id}`;
   const response = await fetch(target);
-    const data = await response.json();
-    return data;
+  if (response.status != 200){
+    cookies_instance.remove(thread_id);
+    return null;
+  }
+  const data = await response.json();
+  return data;
 }
 
 function ChatHistory(){
@@ -44,19 +47,39 @@ function ChatHistory(){
 
 
   return(
-    <div className = "basis-1/5 overflow-y-auto">
-      {history_list.map((cook : any, index) => 
-        cook[0][0] == "general" ?
-          <div key = {index}>
-            <Link href={`/chat`} shallow onClick={() => attachThread(cook[1])}>{cook[0][2]} </Link>
-          </div>       
-          :
-          <div key = {index}>
-            <Link href={`/chat?articleUrl=${encodeURIComponent(cook[0][3])}`} shallow onClick={() => attachThread(cook[1])}>{cook[0][1]} </Link>
-            <Image src={cook[0][2]} alt = "@/public/placeholder_img" width={50} height={50}/>
-          </div>        
-        
-      )}
+    <div className="basis-1/5 overflow-y-auto text-white p-4 rounded-2xl shadow-lg">
+      {history_list.map((cook, index) => (
+        cook[0][0] === "general" ? (
+          <div key={index} className="mb-3">
+            <Link 
+              href={`/chat`} 
+              shallow 
+              onClick={() => {attachThread(cook[1]); console.log(sessionStorage.getItem("thread_id"))}} 
+              className="text-cyan-400 hover:underline"
+            >
+              {cook[0][1]}
+            </Link>
+          </div>
+        ) : (
+          <div key={index} className="flex items-center space-x-3 mb-3">
+            <Image 
+              src={cook[0][2]} 
+              alt="Chat Thumbnail" 
+              width={50} 
+              height={50} 
+              className="rounded-lg"
+            />
+            <Link 
+              href={`/chat?articleUrl=${encodeURIComponent(cook[0][3])}`} 
+              shallow 
+              onClick={() => attachThread(cook[1])} 
+              className="text-cyan-400 hover:underline"
+            >
+              {cook[0][1]}
+            </Link>
+          </div>
+        )
+      ))}
     </div>
   )
 }
@@ -69,11 +92,11 @@ export default function Chat(props : any) {
     const articleUrl = articleUrlParam ? encodeURI(articleUrlParam) : null;
     const [article, setArticle] = useState<Article>();
     const [error, setError] = useState<string | null>(null);
-    const [fetchedArticles, setFetchedArticles] = useState <{}> ()
     const [chatMessages, setChatMessages] = useState<string[]>([])
     const [question, setQuestion] = useState<string>();
     const formRef = useRef<HTMLFormElement>(null);
     const [shouldSubmit, setShouldSubmit] = useState<Boolean>(false);
+    let fetched : any;
 
     useEffect(() => {
       try{
@@ -82,10 +105,19 @@ export default function Chat(props : any) {
         thread_id_given = sessionStorage.getItem("thread_id") || "";
         sessionStorage.removeItem("thread_id");
         if (thread_id_given != ""){
-          getPastChat(articleUrl ? "0" : "1", thread_id_given).then((data :any) => setChatMessages(data))
-          if (!articleUrl)
-            console.log(`setting fetched articles state with the value of ${cookies_instance.get(thread_id_given)[1]}`);
-            setFetchedArticles(cookies_instance.get(thread_id_given)[1]);
+          getPastChat(articleUrl ? "0" : "1", thread_id_given).then((data :any) =>{
+            if (data)
+            {
+              setChatMessages(data);
+              console.log(`Chat history received, data: ${data}`);
+            }
+              
+            else
+              setChatMessages(["The selected chat is corrupt and was removed"]);
+          });
+        }
+        else{
+          setChatMessages([]);
         }
           
       }
@@ -146,16 +178,13 @@ export default function Chat(props : any) {
           },
           body: JSON.stringify({ query: question, thread_id: thread_id_given ? thread_id_given : "" }),
         });
-        console.log(`value of question before state: ${question}`);
-        
-        console.log(`value of chatmessages state: ${chatMessages}`);
 
       try{
         var response = await fetch(request)
         var data: any = await response.json()
         const text_response = data[0].content;
 
-        if (!articleUrl && !thread_id_given){
+        if (!articleUrl && data.length == 3){
           retrieved_articles_for_general = data[1][0];
           const seen = new Set();
           retrieved_articles_for_general = retrieved_articles_for_general.filter(([title, url]) => {
@@ -164,18 +193,23 @@ export default function Chat(props : any) {
             seen.add(key);
             return true; 
           });
-          setFetchedArticles(retrieved_articles_for_general);
         }
 
         
         if (!thread_id_given){
-          thread_id_given = articleUrl ? data[1] : data[2];
+          if (articleUrl)
+            thread_id_given =  data[1];
+          else
+            if (data.length == 3)
+              thread_id_given = data[2];
+            else
+              thread_id_given = data[1];
         }
 
         const currentCookie = cookies_instance.get(thread_id_given);
         if (!articleUrl){
           if (!currentCookie){
-            setCookie(thread_id_given, ["general", retrieved_articles_for_general, question])    
+            setCookie(thread_id_given, ["general", question])    
           }
         }
         else{
@@ -183,8 +217,7 @@ export default function Chat(props : any) {
             setCookie(thread_id_given, ["url", article?.title, article?.img, articleUrl])   
           } 
         }
-        //setChatMessages([...chatMessages, question]);
-        setChatMessages((prevState) => [...prevState, text_response]);
+        setChatMessages((prevState) => [...prevState, retrieved_articles_for_general, text_response]);
         setQuestion("");
       }
       catch (error){
@@ -204,8 +237,8 @@ export default function Chat(props : any) {
         <div className="flex h-[88vh]">
           <ChatHistory />
           <div className="basis-4/5 flex relative flex-col">
-            <div className = "overflow-y-scroll">
-              {articleUrl ?
+            <div className = {`overflow-y-scroll ${articleUrl ? "" : "flex-col items-center h-full justify-center"}`}>
+              {articleUrl &&
                 <div>
                   <ArticleComponentChat article = {article} />
                   {!question && chatMessages.length == 0 &&
@@ -214,28 +247,44 @@ export default function Chat(props : any) {
                       {questions && <QuestionSuggestion question = {questions[1]} gridPosition = "col-span-2"/>}
                       {questions && <QuestionSuggestion question = {questions[2]} gridPosition = "col-span-2 col-start-2"/>}
                   </div>}
+                </div> }
+                
+                {!articleUrl && !question && chatMessages.length == 0 && <div className="flex flex-col items-center h-full justify-center pb-20"> 
+                  <h2 className = "text-6xl font-semibold mb-20">Ask a general question</h2>
+                  <div className = "grid grid-cols-4 mx-50 my-5 gap-6">
+                      <QuestionSuggestion question = "Is there something new about Elon Musk?" gridPosition = "col-span-2"/>
+                      <QuestionSuggestion question = "Tell me something interesting from CES 2025" gridPosition = "col-span-2"/>
+                      <QuestionSuggestion question = "Latest news about startups" gridPosition = "col-span-2 col-start-2"/>      
+                  </div>
                 </div>
-                :
-                <div>
-                  <h3>Is there something new about Elon Musk?</h3>
-                  <h3>Tell me something interesting from CES 2025</h3>
-                  <h3>Latest news about startups</h3>           
-                </div> 
-              }
+                }
 
-              {!articleUrl && <FetchedArticles articles = {fetchedArticles}/>}
+    
               <ChatList messages = {chatMessages} />
               <form ref = {formRef} action={handle_question1} className="bg-gray-900 p-4 rounded-2xl shadow-lg flex items-center space-x-4 absolute bottom-0 left-50 right-50">
                 <textarea
                   placeholder="Ask something..."
-                  className="flex-1 overflow-y-auto overflow-x-hidden bg-gray-800 text-white p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  className="flex-1 overflow-y-auto resize-none overflow-x-hidden bg-gray-800 text-white p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   value={question}
                   onChange={(event)=>{setQuestion(event.target.value);}}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      if (event.shiftKey) {
+                        // Shift + Enter should create a new line
+                        event.preventDefault();
+                        setQuestion((prev) => prev + "\n");
+                      } else {
+                        // Enter should submit the form
+                        event.preventDefault();
+                        handle_question1();
+                      }
+                    }
+                  }}
                   required
                 />
                 <button
                   className="bg-cyan-500 text-black px-4 py-2 rounded-lg font-medium hover:bg-cyan-600 disabled:bg-cyan-600 transition-shadow shadow-md hover:shadow-lg"
-                  disabled = {chatMessages.length % 2 == 1}>
+                  disabled = {chatMessages.filter((o : any) => typeof o === "string").length % 2 == 1}>
                   Ask
                 </button>
               </form>

@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
-import { IoChatbubbleEllipsesOutline } from "react-icons/io5";
+
 import Image from "next/image";
+import ChatBtnLayout from "@/ui/newChatBtnLayout";
 
 
 const geistMono = Geist_Mono({
@@ -36,9 +37,7 @@ export default function RootLayout({
             <Image className="inline size-full aspect-auto" src="/TV_logo.png" alt="TechVector" width={200} height={200} />
           </Link>
           
-          <Link href = "/chat"> 
-            <IoChatbubbleEllipsesOutline className="inline size-16"/>
-          </Link>
+          <ChatBtnLayout />
         </header>
         {children}
       </body>

@@ -384,7 +384,10 @@ async def general_chatbot(chatbot_data: chatbot_data):
 
     ans = global_variables["graph"].invoke({"messages": [{"role": "user", "content": input_message}]} ,config=config,)
 
-    return ans["messages"][-1], ans["artifacts"], thread_id
+    if "artifacts" in ans:
+        return ans["messages"][-1], ans["artifacts"], thread_id
+    else:
+        return ans["messages"][-1], thread_id
 
 
 class Url_chatbot_data(BaseModel):
@@ -466,23 +469,21 @@ async def conversation_history(type : str, thread_id: str):
     snapshot_json = jsonable_encoder(snapshot)
     message_structure = [snapshot_json[0]['messages']]
 
-    # result = []
-    # for item in dir(snapshot):
-    #     attr = getattr(snapshot, item)
-    #     if callable(attr):
-    #         result.append(f"{item}: Method")
-    #     else:
-    #         result.append(f"{item}: Attribute")
-
-    
-
-    #messages = snapshot.values["messages"]
-    
-    conversation_messages = [
-        message["content"] for messages in message_structure
+    if type == "0":
+        conversation_messages = [
+            message["content"] for messages in message_structure
+            for message in messages
+            if message["type"] in ("human", "system")
+            or (message["type"] == "ai" and not message["tool_calls"])
+        ]
+    else:
+        conversation_messages = [
+        message["content"] if message["type"] in ("human", "system")
+        or (message["type"] == "ai" and not message["tool_calls"]) 
+        else message["artifact"] if message["type"] == "tool" else None
+        for messages in message_structure
         for message in messages
-        if message["type"] in ("human", "system")
-        or (message["type"] == "ai" and not message["tool_calls"])
     ]
+        conversation_messages = [message for message in conversation_messages if message is not None]
 
     return conversation_messages
