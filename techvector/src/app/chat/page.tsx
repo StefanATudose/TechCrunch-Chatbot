@@ -32,57 +32,6 @@ async function getPastChat(type: "0"|"1", thread_id: string){
   return data;
 }
 
-function ChatHistory(){
-  const allCookies = cookies_instance.getAll();
-  const history_list = []
-  for (let cookie in allCookies){
-    if (/^[0-9A-F]{8}-[0-9A-F]{4}-[4][0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/i.test(cookie)){
-        history_list.push([allCookies[cookie], cookie]);
-    }
-  }
-
-  const attachThread = (thread : string) => {
-    sessionStorage.setItem("thread_id", thread);
-  };
-
-
-  return(
-    <div className="basis-1/5 overflow-y-auto text-white p-4 rounded-2xl shadow-lg">
-      {history_list.map((cook, index) => (
-        cook[0][0] === "general" ? (
-          <div key={index} className="mb-3">
-            <Link 
-              href={`/chat`} 
-              shallow 
-              onClick={() => {attachThread(cook[1]); console.log(sessionStorage.getItem("thread_id"))}} 
-              className="text-cyan-400 hover:underline"
-            >
-              {cook[0][1]}
-            </Link>
-          </div>
-        ) : (
-          <div key={index} className="flex items-center space-x-3 mb-3">
-            <Image 
-              src={cook[0][2]} 
-              alt="Chat Thumbnail" 
-              width={50} 
-              height={50} 
-              className="rounded-lg"
-            />
-            <Link 
-              href={`/chat?articleUrl=${encodeURIComponent(cook[0][3])}`} 
-              shallow 
-              onClick={() => attachThread(cook[1])} 
-              className="text-cyan-400 hover:underline"
-            >
-              {cook[0][1]}
-            </Link>
-          </div>
-        )
-      ))}
-    </div>
-  )
-}
 
 
 export default function Chat(props : any) {
@@ -96,6 +45,7 @@ export default function Chat(props : any) {
     const [question, setQuestion] = useState<string>();
     const formRef = useRef<HTMLFormElement>(null);
     const [shouldSubmit, setShouldSubmit] = useState<Boolean>(false);
+    const refreshTrigger = useRef(0);
     let fetched : any;
 
     useEffect(() => {
@@ -124,7 +74,7 @@ export default function Chat(props : any) {
       catch (error){
         setError((error as any).message);
       } 
-    }, [router]);
+    }, [router, refreshTrigger.current]);
 
     useEffect(()=>{
       if (formRef.current && shouldSubmit){
@@ -149,6 +99,61 @@ export default function Chat(props : any) {
         }} className = {`${props.gridPosition} bg-gray-700 text-white hover:bg-gray-600 p-5 rounded-lg font-medium transition-shadow shadow-md hover:shadow-lg`}>{props.question}</button>
       )
     }
+
+    function ChatHistory(){
+      const allCookies = cookies_instance.getAll();
+      const history_list = []
+      for (let cookie in allCookies){
+        if (/^[0-9A-F]{8}-[0-9A-F]{4}-[4][0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/i.test(cookie)){
+            history_list.push([allCookies[cookie], cookie]);
+        }
+      }
+    
+      const attachThread = (thread : string) => {
+        sessionStorage.setItem("thread_id", thread);
+        refreshTrigger.current += 1;
+      };
+    
+    
+      return(
+        <div className="basis-1/5 overflow-y-auto text-white p-4 rounded-2xl shadow-lg text-center">
+          {history_list.reverse().map((cook, index) => (
+            cook[0][0] === "general" ? (
+              <div key={index} className={`mb-7 ${thread_id_given == cook[1] && "bg-gray-800 rounded-2xl"}`}>
+                <Link 
+                  href={`/chat`} 
+                  shallow 
+                  onClick={() => {attachThread(cook[1])}} 
+                  className="text-cyan-400 hover:underline"
+                >
+                  {cook[0][1]}
+                </Link>
+              </div>
+            ) : (
+              <div key={index} className={`flex items-center space-x-3 mb-7 ${thread_id_given == cook[1] && "bg-gray-800 rounded-2xl"}`}>
+                <Image 
+                  src={cook[0][2]} 
+                  alt="Chat Thumbnail" 
+                  width={50} 
+                  height={50} 
+                  className="rounded-lg"
+                />
+                <Link 
+                  href={`/chat?articleUrl=${encodeURIComponent(cook[0][3])}`} 
+                  shallow 
+                  onClick={() => attachThread(cook[1])} 
+                  className="text-cyan-400 hover:underline"
+                >
+                  {cook[0][1]}
+                </Link>
+              </div>
+            )
+          ))}
+        </div>
+      )
+    }
+
+
 
     async function handle_question1(){
       if (!question) {
@@ -217,7 +222,10 @@ export default function Chat(props : any) {
             setCookie(thread_id_given, ["url", article?.title, article?.img, articleUrl])   
           } 
         }
-        setChatMessages((prevState) => [...prevState, retrieved_articles_for_general, text_response]);
+        if (retrieved_articles_for_general)
+          setChatMessages((prevState) => [...prevState, retrieved_articles_for_general, text_response]);
+        else
+        setChatMessages((prevState) => [...prevState, text_response]);
         setQuestion("");
       }
       catch (error){
