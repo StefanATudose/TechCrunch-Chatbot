@@ -89,9 +89,11 @@ async def lifespan(app: FastAPI):
         """Translate `PGVector` internal query language elements to valid filters."""
 
         """Subset of allowed logical operators and comparators."""
-        allowed_operators = [Operator.AND, Operator.OR]
+        allowed_operators = [Operator.AND, Operator.OR, Operator.NOT]
         allowed_comparators = [
             Comparator.EQ,
+            Comparator.GTE,
+            Comparator.LTE,
             Comparator.NE,
             Comparator.GT,
             Comparator.LT,
@@ -147,7 +149,7 @@ async def lifespan(app: FastAPI):
         ),
         AttributeInfo(
             name="date",
-            description="The date that the article was published on, in the format 'YYYY-MM-DD'. If the month is given by its name, it is converted to its number.",
+            description="The date that the article was published on, in the format 'YYYY-MM-DD'. If the month is given by its name, it is converted to its number. If the year is not specified, take 2025 as default, be it for specific dates or date intervals.",
             type="string",
         ),
         AttributeInfo(
@@ -225,7 +227,9 @@ async def lifespan(app: FastAPI):
             "say that the context doesn't contain the answer, but nevertheless try to provide an"
             "explanation based on your pre-trained knowledge. If you still don't know,"
             "say that you don't know. Use three sentences maximum and keep the "
-            "answer concise.It is ABSOLUTELY NECESSARY to mention that the retrieved context does not contain the answer if it does not."
+            "answer concise.\n\nYou can make use of reason based on the retrieved context, "
+            "and, as such, the required information does not need to be specified word-for-word in the context.\n"
+            "Refer to the retrieved context as 'The articles'."
             "\n\n"
             f"{docs_content}"
         )
@@ -314,7 +318,9 @@ async def lifespan(app: FastAPI):
             "PLEASE EXPLICITLY SAY that the context doesn't contain the answer, but nevertheless try to provide an"
             "explanation based on your pre-trained knowledge. If you still don't know,"
             "say that you don't know. Use three sentences maximum and keep the "
-            "answer concise. It is ABSOLUTELY NECESSARY to mention that the retrieved context does not contain the answer if it does not."
+            "answer concise.\n\n You can make use of reason based on the retrieved context, "
+            "and, as such, the required information does not need to be specified word-for-word in the context.\n"
+            "You MUST refer to the retrieved context as 'The article'."
             "\n\n"
             f"{docs_content}"
         )
